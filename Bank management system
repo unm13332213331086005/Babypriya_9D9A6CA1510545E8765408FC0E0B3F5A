@@ -1,0 +1,170 @@
+import tkinter as tk
+from tkinter import messagebox
+import sqlite3
+
+# -------------------- DATABASE SETUP --------------------
+def init_db():
+    conn = sqlite3.connect("bank.db")
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS accounts (
+                    acc_no INTEGER PRIMARY KEY,
+                    name TEXT,
+                    pin TEXT,
+                    balance REAL)''')
+
+    # Insert a demo account if not exists
+    c.execute("SELECT * FROM accounts WHERE acc_no=1001")
+    if not c.fetchone():
+        c.execute("INSERT INTO accounts VALUES (1001,'Priya','1234',5000.0)")
+    
+    conn.commit()
+    conn.close()
+
+# -------------------- BANK APP CLASS --------------------
+class BankApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Bank Account Console App")
+        self.root.geometry("420x350")
+        self.root.configure(bg="#87CEFA")  # Light blue background
+        self.current_user = None
+        
+        self.login_screen()
+
+    # -------------------- LOGIN SCREEN --------------------
+    def login_screen(self):
+        self.clear()
+        tk.Label(self.root, text="🏦 Bank Login", font=("Arial", 18, "bold"),
+                 bg="#87CEFA", fg="white").pack(pady=15)
+
+        frame = tk.Frame(self.root, bg="#4682B4", bd=3, relief="ridge")
+        frame.pack(pady=20, padx=30)
+
+        tk.Label(frame, text="Account Number", font=("Arial", 12),
+                 bg="#4682B4", fg="white").grid(row=0, column=0, pady=5, padx=10)
+        self.acc_entry = tk.Entry(frame, font=("Arial", 12))
+        self.acc_entry.grid(row=0, column=1, pady=5, padx=10)
+
+        tk.Label(frame, text="PIN", font=("Arial", 12),
+                 bg="#4682B4", fg="white").grid(row=1, column=0, pady=5, padx=10)
+        self.pin_entry = tk.Entry(frame, show="*", font=("Arial", 12))
+        self.pin_entry.grid(row=1, column=1, pady=5, padx=10)
+
+        tk.Button(self.root, text="Login", font=("Arial", 12, "bold"),
+                  bg="#1E90FF", fg="white", width=12,
+                  command=self.login).pack(pady=10)
+
+    def login(self):
+        acc_no = self.acc_entry.get()
+        pin = self.pin_entry.get()
+        conn = sqlite3.connect("bank.db")
+        c = conn.cursor()
+        c.execute("SELECT * FROM accounts WHERE acc_no=? AND pin=?", (acc_no, pin))
+        user = c.fetchone()
+        conn.close()
+
+        if user:
+            self.current_user = user
+            self.dashboard()
+        else:
+            messagebox.showerror("Error", "Invalid Account or PIN")
+
+    # -------------------- DASHBOARD --------------------
+    def dashboard(self):
+        self.clear()
+        tk.Label(self.root, text=f"Welcome {self.current_user[1]} 👋", 
+                 font=("Arial", 16, "bold"), bg="#87CEFA", fg="white").pack(pady=15)
+
+        btn_frame = tk.Frame(self.root, bg="#87CEFA")
+        btn_frame.pack(pady=20)
+
+        tk.Button(btn_frame, text="💰 Check Balance", width=18, font=("Arial", 12, "bold"),
+                  bg="#1E90FF", fg="white", command=self.check_balance).grid(row=0, column=0, pady=6)
+        tk.Button(btn_frame, text="📥 Deposit", width=18, font=("Arial", 12, "bold"),
+                  bg="#32CD32", fg="white", command=self.deposit).grid(row=1, column=0, pady=6)
+        tk.Button(btn_frame, text="📤 Withdraw", width=18, font=("Arial", 12, "bold"),
+                  bg="#FF6347", fg="white", command=self.withdraw).grid(row=2, column=0, pady=6)
+        tk.Button(btn_frame, text="🚪 Logout", width=18, font=("Arial", 12, "bold"),
+                  bg="#696969", fg="white", command=self.login_screen).grid(row=3, column=0, pady=6)
+
+    def check_balance(self):
+        conn = sqlite3.connect("bank.db")
+        c = conn.cursor()
+        c.execute("SELECT balance FROM accounts WHERE acc_no=?", (self.current_user[0],))
+        bal = c.fetchone()[0]
+        conn.close()
+        messagebox.showinfo("Balance", f"💵 Your Balance: ₹{bal:.2f}")
+
+    def deposit(self):
+        self.amount_window("Deposit", self.do_deposit, "#32CD32")
+
+    def withdraw(self):
+        self.amount_window("Withdraw", self.do_withdraw, "#FF6347")
+
+    def do_deposit(self, amt):
+        if amt <= 0:
+            messagebox.showerror("Error", "Invalid amount")
+            return
+        conn = sqlite3.connect("bank.db")
+        c = conn.cursor()
+        c.execute("UPDATE accounts SET balance=balance+? WHERE acc_no=?", (amt, self.current_user[0]))
+        conn.commit()
+        conn.close()
+        messagebox.showinfo("Success", f"✅ ₹{amt} deposited successfully")
+        self.refresh_user()
+
+    def do_withdraw(self, amt):
+        conn = sqlite3.connect("bank.db")
+        c = conn.cursor()
+        c.execute("SELECT balance FROM accounts WHERE acc_no=?", (self.current_user[0],))
+        bal = c.fetchone()[0]
+        if amt <= 0 or amt > bal:
+            messagebox.showerror("Error", "Invalid or Insufficient Balance")
+            conn.close()
+            return
+        c.execute("UPDATE accounts SET balance=balance-? WHERE acc_no=?", (amt, self.current_user[0]))
+        conn.commit()
+        conn.close()
+        messagebox.showinfo("Success", f"✅ ₹{amt} withdrawn successfully")
+        self.refresh_user()
+
+    # -------------------- HELPER FUNCTIONS --------------------
+    def amount_window(self, title, action_func, color):
+        win = tk.Toplevel(self.root)
+        win.title(title)
+        win.geometry("270x160")
+        win.configure(bg="#4682B4")
+
+        tk.Label(win, text=f"Enter amount to {title.lower()}", 
+                 font=("Arial", 12, "bold"), bg="#4682B4", fg="white").pack(pady=10)
+        amt_entry = tk.Entry(win, font=("Arial", 12))
+        amt_entry.pack()
+
+        def submit():
+            try:
+                amt = float(amt_entry.get())
+                action_func(amt)
+                win.destroy()
+            except ValueError:
+                messagebox.showerror("Error", "Enter a valid number")
+
+        tk.Button(win, text="Submit", font=("Arial", 12, "bold"),
+                  bg=color, fg="white", width=12, command=submit).pack(pady=15)
+
+    def refresh_user(self):
+        conn = sqlite3.connect("bank.db")
+        c = conn.cursor()
+        c.execute("SELECT * FROM accounts WHERE acc_no=?", (self.current_user[0],))
+        self.current_user = c.fetchone()
+        conn.close()
+
+    def clear(self):
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+# -------------------- MAIN --------------------
+if __name__ == "__main__":
+    init_db()
+    root = tk.Tk()
+    app = BankApp(root)
+    root.mainloop()
